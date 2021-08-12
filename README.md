@@ -7,7 +7,7 @@ bridges_login:
     url: https://github.com/bridges2021/bridges_login.git
     ref: main
 ```
-2. Add this lines to ios/Runner/Info.plist for signInWithGoogle on IOS by manual or Xcode
+2. Add this lines to ios/Runner/Info.plist for signInWithGoogle on IOS by manual or Xcode.
 ```plist
 <key>CFBundleURLTypes</key>
 <array>
@@ -23,6 +23,8 @@ bridges_login:
 	</dict>
 </array>
 ```
+
+3. Register your app with SignInWithApple enabled on Apple's Developer Identifiers for Sign in with Apple on IOS.
 
 ## How to use
 1. Wrap your widget with BridgesLoginView.
