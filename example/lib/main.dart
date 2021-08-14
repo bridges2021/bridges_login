@@ -21,10 +21,6 @@ class ExampleApp extends StatelessWidget {
           print(FirebaseAuth.instance.currentUser?.uid);
           return FirebaseAuth.instance.currentUser?.uid;
         },
-        signInWithApple: signInWithApple,
-        signInWithGoogle: signInWithGoogle,
-        signInWithEmail: signInWithEmail,
-        signInWithPhoneNumber: signInWithPhoneNumber,
         createUserProfile: (id) async {
           FirebaseFirestore.instance.doc('Users/$id').set({
             'createDateTime': DateTime.now(),

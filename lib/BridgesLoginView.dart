@@ -16,10 +16,10 @@ class BridgesLoginView extends StatefulWidget {
       this.title = 'ELLIE',
       required this.child,
       required this.getUserProfile,
-      this.signInWithEmail,
-      this.signInWithApple,
-      this.signInWithGoogle,
-      this.signInWithPhoneNumber,
+      this.signInWithEmail = true,
+      this.signInWithApple = true,
+      this.signInWithGoogle = true,
+      this.signInWithPhoneNumber = true,
       required this.createUserProfile})
       : super(key: key);
 
@@ -27,12 +27,10 @@ class BridgesLoginView extends StatefulWidget {
   final Future<String?> Function() onSplash;
   final Widget child;
   final Future<void> Function(String id) getUserProfile;
-  final Future<UserCredential> Function(String email, String password)?
-      signInWithEmail;
-  final Future<UserCredential> Function()? signInWithGoogle;
-  final Future<UserCredential> Function()? signInWithApple;
-  final Future<void> Function(String phoneNumber, String smsCode)?
-      signInWithPhoneNumber;
+  final bool signInWithEmail;
+  final bool signInWithGoogle;
+  final bool signInWithApple;
+  final bool signInWithPhoneNumber;
   final Future<void> Function(String uid) createUserProfile;
 
   @override
