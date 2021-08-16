@@ -3,61 +3,34 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_phoenix/flutter_phoenix.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await Firebase.initializeApp();
-
-  runApp(Phoenix(child: ExampleApp()));
+  runApp(MyApp());
 }
 
-class ExampleApp extends StatelessWidget {
+class MyApp extends StatelessWidget {
+  const MyApp({Key? key}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: BridgesLoginView(
-        onSplash: () async {
-          print(FirebaseAuth.instance.currentUser?.uid);
-          return FirebaseAuth.instance.currentUser?.uid;
-        },
-        createUserProfile: (id) async {
-          FirebaseFirestore.instance.doc('Users/$id').set({
-            'createDateTime': DateTime.now(),
-            'name': FirebaseAuth.instance.currentUser!.displayName
-          });
-        },
-        getUserProfile: (id) async {
-          final _userProfile =
-              await FirebaseFirestore.instance.doc('Users/$id').get();
-          print(_userProfile.data());
-        },
-        child: MainView(),
-      ),
+      title: 'Bridges login example app',
+      home: MyView(),
     );
   }
 }
 
-class MainView extends StatelessWidget {
+class MyView extends StatelessWidget {
+  const MyView({Key? key}) : super(key: key);
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        automaticallyImplyLeading: false,
-        title: Text('Bridges login view example'),
-      ),
-      body: ListView(
-        padding: const EdgeInsets.all(30),
-        children: [
-          Text('Your are current signed in'),
-          ElevatedButton(
-              onPressed: () async {
-                await FirebaseAuth.instance.signOut();
-                Phoenix.rebirth(context);
-              },
-              child: Text('Sign out'))
-        ],
-      ),
-    );
+    return BridgesLoginView(onSplash: () async {}, validUser: () async {
+      final _user = FirebaseAuth.instance.currentUser!;
+      return _user.emailVerified && _user.displayName != null;
+    },);
   }
 }
+

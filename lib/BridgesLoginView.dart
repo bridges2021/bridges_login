@@ -10,6 +10,151 @@ import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
 /// This view can control user sign in, load user data by user ID
 class BridgesLoginView extends StatefulWidget {
+  /// The title
+  final String title;
+
+  /// What to show after splash
+  final Widget child;
+
+  /// User return from app, and other things to load on splash
+  final Future<User?> Function() onSplash;
+
+  /// Check user is valid;
+  final Future<bool> Function() validUser;
+
+  /// Get user profile;
+  final Future<void> Function() getUserProfile;
+
+  /// Open sign in with Apple option, default to be true
+  final bool signInWithApple;
+
+  /// Open sign in with Google option, default to be true
+  final bool signInWithGoogle;
+
+  /// Open sign in with Email option, default to be true
+  final bool signInWithEmail;
+
+  /// Open sign in with PhoneNumber option, default to be true
+  final bool signInWithPhoneNumber;
+
+  const BridgesLoginView(
+      {Key? key,
+      this.title = 'Bridges',
+      required this.child,
+      required this.onSplash,
+      required this.validUser,
+      required this.getUserProfile,
+      this.signInWithApple = true,
+      this.signInWithEmail = true,
+      this.signInWithGoogle = true,
+      this.signInWithPhoneNumber = true})
+      : super(key: key);
+
+  @override
+  _BridgesLoginViewState createState() => _BridgesLoginViewState();
+}
+
+class _BridgesLoginViewState extends State<BridgesLoginView> {
+  late bool _isLoading;
+  User? _user;
+  late bool _userValid;
+
+  Future<void> init() async {
+    _user = await widget.onSplash();
+    if (_user != null) {
+      final _userValid = await widget.validUser();
+      if (_userValid) {
+        await widget.getUserProfile();
+      }
+    }
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _isLoading = true;
+    _userValid = false;
+    init();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_isLoading) {
+      return Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                widget.title,
+                style: Theme.of(context).textTheme.headline6,
+              ),
+              CircularProgressIndicator.adaptive(),
+            ],
+          ),
+        ),
+      );
+    }
+    if (_user != null) {
+      if (_userValid) {
+        return widget.child;
+      } else {
+        return _UserValidationView();
+      }
+    } else {
+      return _CreateAndSignInView(title: widget.title,);
+    }
+  }
+}
+
+class _UserValidationView extends StatefulWidget {
+  final String title;
+
+  final User user;
+
+  const _UserValidationView({Key? key, required this.title, required this.user}) : super(key: key);
+
+  @override
+  __UserValidationViewState createState() => __UserValidationViewState();
+}
+
+class __UserValidationViewState extends State<_UserValidationView> {
+  late String? _displayName;
+  late bool _emailVerified;
+
+  @override
+  void initState() {
+    super.initState();
+    _displayName = widget.user.displayName;
+    _emailVerified = widget.user.emailVerified;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+    );
+  }
+}
+
+class _CreateAndSignInView extends StatelessWidget {
+  final String title;
+
+  const _CreateAndSignInView({Key? key, required this.title}) : super(key: key);
+
+  @override \Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('$title'),
+      ),
+      body: ,
+    );
+  }
+}
+
+class BridgesLoginView extends StatefulWidget {
   const BridgesLoginView(
       {Key? key,
       required this.onSplash,
@@ -24,7 +169,7 @@ class BridgesLoginView extends StatefulWidget {
       : super(key: key);
 
   final String title;
-  final Future<String?> Function() onSplash;
+  final Future<User?> Function() onSplash;
   final Widget child;
   final Future<void> Function(String id) getUserProfile;
   final bool signInWithEmail;
@@ -38,7 +183,7 @@ class BridgesLoginView extends StatefulWidget {
 }
 
 class _BridgesLoginViewState extends State<BridgesLoginView> {
-  String? _userId;
+  User? _user;
   bool _isLoading = true;
 
   @override
@@ -96,10 +241,10 @@ class _NoUserView extends StatelessWidget {
       {Key? key,
       required this.title,
       required this.child,
-      this.signInWithEmail,
-      this.signInWithGoogle,
-      this.signInWithApple,
-      this.signInWithPhoneNumber,
+      required this.signInWithEmail,
+      required this.signInWithGoogle,
+      required this.signInWithApple,
+      required this.signInWithPhoneNumber,
       required this.getUserProfile,
       required this.createUserProfile})
       : super(key: key);
@@ -108,12 +253,10 @@ class _NoUserView extends StatelessWidget {
   final Future<void> Function(String id) getUserProfile;
   final Future<void> Function(String uid) createUserProfile;
 
-  final Future<UserCredential> Function(String email, String password)?
-      signInWithEmail;
-  final Future<UserCredential> Function()? signInWithGoogle;
-  final Future<UserCredential> Function()? signInWithApple;
-  final Future<void> Function(String phoneNumber, String smsCode)?
-      signInWithPhoneNumber;
+  final bool signInWithEmail;
+  final bool signInWithGoogle;
+  final bool signInWithApple;
+  final bool signInWithPhoneNumber;
 
   @override
   Widget build(BuildContext context) {
