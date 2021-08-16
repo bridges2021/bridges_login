@@ -1,53 +1,63 @@
-import 'dart:io';
-
+import 'package:another_flushbar/flushbar.dart';
+import 'package:bridges_login/DividerWithText.dart';
+import 'package:bridges_login/SignInButton.dart';
+import 'package:bridges_login/bridges_login.dart';
+import 'package:bridges_login/createUserWithEmailAndPassword.dart';
+import 'package:bridges_login/registerOrganization.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter/services.dart';
-import 'package:flutter_spinkit/flutter_spinkit.dart';
 import 'package:font_awesome_flutter/font_awesome_flutter.dart';
 import 'package:sign_in_with_apple/sign_in_with_apple.dart';
 
-/// This view can control user sign in, load user data by user ID
+import 'UserProfile.dart';
+import 'registerNewOrganization.dart';
+
+void flush(String errorText, BuildContext context) {
+  Flushbar(
+    margin: EdgeInsets.all(8),
+    borderRadius: BorderRadius.circular(8),
+    duration: Duration(seconds: 5),
+    message: errorText,
+  )..show(context);
+}
+
+/// This view can control user sign in, load user data by user ID.
 class BridgesLoginView extends StatefulWidget {
-  /// The title
+  /// The title.
   final String title;
 
-  /// What to show after splash
+  /// What to show after splash.
   final Widget child;
 
-  /// User return from app, and other things to load on splash
-  final Future<User?> Function() onSplash;
+  /// Return user profile
+  final Function(UserProfile userProfile) whenDone;
 
-  /// Check user is valid;
-  final Future<bool> Function() validUser;
-
-  /// Get user profile;
-  final Future<void> Function() getUserProfile;
-
-  /// Open sign in with Apple option, default to be true
+  /// Open sign in with Apple option, default to be true.
   final bool signInWithApple;
 
-  /// Open sign in with Google option, default to be true
+  /// Open sign in with Google option, default to be true.
   final bool signInWithGoogle;
 
-  /// Open sign in with Email option, default to be true
+  /// Open sign in with Email option, default to be true.
   final bool signInWithEmail;
 
-  /// Open sign in with PhoneNumber option, default to be true
+  /// Open sign in with PhoneNumber option, default to be true.
   final bool signInWithPhoneNumber;
+
+  final bool allowRegisterNewOrganization;
 
   const BridgesLoginView(
       {Key? key,
       this.title = 'Bridges',
       required this.child,
-      required this.onSplash,
-      required this.validUser,
-      required this.getUserProfile,
+      required this.whenDone,
       this.signInWithApple = true,
       this.signInWithEmail = true,
       this.signInWithGoogle = true,
-      this.signInWithPhoneNumber = true})
+      this.signInWithPhoneNumber = true,
+      this.allowRegisterNewOrganization = true})
       : super(key: key);
 
   @override
@@ -55,965 +65,479 @@ class BridgesLoginView extends StatefulWidget {
 }
 
 class _BridgesLoginViewState extends State<BridgesLoginView> {
-  late bool _isLoading;
   User? _user;
-  late bool _userValid;
+  bool get _userValid => _user!.displayName != null;
 
-  Future<void> init() async {
-    _user = await widget.onSplash();
-    if (_user != null) {
-      final _userValid = await widget.validUser();
-      if (_userValid) {
-        await widget.getUserProfile();
-      }
-    }
-  }
+  /// email verify bug
+  // bool get _userValid => _user!.displayName != null && _user!.emailVerified;
+  UserProfile? userProfile;
 
   @override
   void initState() {
     super.initState();
-    _isLoading = true;
-    _userValid = false;
-    init();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLoading) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
+    return StreamBuilder<User?>(
+      stream: FirebaseAuth.instance.userChanges(),
+      builder: (context, AsyncSnapshot<User?> userSnapshot) {
+        if (userSnapshot.hasError) {
+          return _errorView(userSnapshot.error.toString());
+        }
+
+        if (userSnapshot.connectionState == ConnectionState.waiting) {
+          return _loadingView();
+        }
+
+        if (userSnapshot.data != null) {
+          _user = userSnapshot.data;
+          if (_userValid) {
+            return StreamBuilder(
+              stream: FirebaseFirestore.instance
+                  .collectionGroup('Users')
+                  .where('uid', isEqualTo: _user!.uid)
+                  .snapshots(),
+              builder: (context, AsyncSnapshot<QuerySnapshot> snapshot) {
+                if (snapshot.hasError) {
+                  return _errorView(snapshot.error.toString());
+                }
+
+                if (snapshot.connectionState == ConnectionState.waiting) {
+                  return _loadingView();
+                }
+
+                userProfile = UserProfile(
+                    uid: _user!.uid,
+                    organizations: snapshot.data!.docs
+                        .map((e) => e.reference.parent.parent!)
+                        .toList());
+                widget.whenDone(userProfile!);
+                if (userProfile!.organizations.isEmpty) {
+                  return _registerOrganizationView();
+                } else {
+                  return widget.child;
+                }
+              },
+            );
+          } else {
+            /// email verify bug
+            // if (!_user!.emailVerified) {
+            //   return _emailVerifiedView();
+            // }
+            if (_user!.displayName == null) {
+              return _displayNameView();
+            }
+            return _errorView('Verification error');
+          }
+        } else {
+          return _createAndSignInView();
+        }
+      },
+    );
+  }
+
+  Widget _registerOrganizationView() {
+    final _controller = TextEditingController();
+    return StatefulBuilder(
+      builder: (context, setState) {
+        return Scaffold(
+          appBar: AppBar(
+            title: Text('${widget.title}'),
+          ),
+          body: ListView(
+            padding: const EdgeInsets.all(30),
             children: [
               Text(
-                widget.title,
+                'Enter your referral code.',
+                textAlign: TextAlign.center,
                 style: Theme.of(context).textTheme.headline6,
               ),
-              CircularProgressIndicator.adaptive(),
+              Padding(padding: const EdgeInsets.only(bottom: 20)),
+              Visibility(
+                  visible: widget.allowRegisterNewOrganization,
+                  child: TextButton(
+                      onPressed: () {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) =>
+                                    _registerNewOrganizationView()));
+                      },
+                      child: Text('Register a new organization'))),
+              Padding(padding: const EdgeInsets.only(bottom: 20)),
+              TextField(
+                controller: _controller,
+                decoration: InputDecoration(
+                    hintText: 'Referral code', border: InputBorder.none),
+              ),
+              Padding(padding: const EdgeInsets.only(bottom: 20)),
+              ElevatedButton(
+                  onPressed: () async {
+                    registerOrganization(
+                            referralCode: _controller.text, uid: _user!.uid)
+                        .then((value) {
+                      Navigator.pop(context);
+                    }).onError((error, stackTrace) {
+                      Navigator.pop(context);
+                      flush(error.toString(), context);
+                    });
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => _loadingView()));
+                  },
+                  child: Text('Next'))
             ],
           ),
-        ),
-      );
-    }
-    if (_user != null) {
-      if (_userValid) {
-        return widget.child;
-      } else {
-        return _UserValidationView();
-      }
-    } else {
-      return _CreateAndSignInView(title: widget.title,);
-    }
-  }
-}
-
-class _UserValidationView extends StatefulWidget {
-  final String title;
-
-  final User user;
-
-  const _UserValidationView({Key? key, required this.title, required this.user}) : super(key: key);
-
-  @override
-  __UserValidationViewState createState() => __UserValidationViewState();
-}
-
-class __UserValidationViewState extends State<_UserValidationView> {
-  late String? _displayName;
-  late bool _emailVerified;
-
-  @override
-  void initState() {
-    super.initState();
-    _displayName = widget.user.displayName;
-    _emailVerified = widget.user.emailVerified;
+        );
+      },
+    );
   }
 
-  @override
-  Widget build(BuildContext context) {
+  Widget _registerNewOrganizationView() {
+    final _controller = TextEditingController();
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.title}'),
       ),
-    );
-  }
-}
-
-class _CreateAndSignInView extends StatelessWidget {
-  final String title;
-
-  const _CreateAndSignInView({Key? key, required this.title}) : super(key: key);
-
-  @override \Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        title: Text('$title'),
-      ),
-      body: ,
-    );
-  }
-}
-
-class BridgesLoginView extends StatefulWidget {
-  const BridgesLoginView(
-      {Key? key,
-      required this.onSplash,
-      this.title = 'ELLIE',
-      required this.child,
-      required this.getUserProfile,
-      this.signInWithEmail = true,
-      this.signInWithApple = true,
-      this.signInWithGoogle = true,
-      this.signInWithPhoneNumber = true,
-      required this.createUserProfile})
-      : super(key: key);
-
-  final String title;
-  final Future<User?> Function() onSplash;
-  final Widget child;
-  final Future<void> Function(String id) getUserProfile;
-  final bool signInWithEmail;
-  final bool signInWithGoogle;
-  final bool signInWithApple;
-  final bool signInWithPhoneNumber;
-  final Future<void> Function(String uid) createUserProfile;
-
-  @override
-  _BridgesLoginViewState createState() => _BridgesLoginViewState();
-}
-
-class _BridgesLoginViewState extends State<BridgesLoginView> {
-  User? _user;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    _userId = await widget.onSplash();
-    if (_userId != null) {
-      await widget.getUserProfile(_userId!);
-    }
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final _textTheme = Theme.of(context).textTheme;
-    if (_isLoading) {
-      return Scaffold(
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                widget.title,
-                style: _textTheme.headline6,
-              ),
-              CircularProgressIndicator.adaptive()
-            ],
-          ),
-        ),
-      );
-    } else if (_userId != null) {
-      return widget.child;
-    } else {
-      return _NoUserView(
-          createUserProfile: widget.createUserProfile,
-          getUserProfile: widget.getUserProfile,
-          title: widget.title,
-          child: widget.child,
-          signInWithGoogle: widget.signInWithGoogle,
-          signInWithEmail: widget.signInWithEmail,
-          signInWithApple: widget.signInWithApple,
-          signInWithPhoneNumber: widget.signInWithPhoneNumber);
-    }
-  }
-}
-
-class _NoUserView extends StatelessWidget {
-  const _NoUserView(
-      {Key? key,
-      required this.title,
-      required this.child,
-      required this.signInWithEmail,
-      required this.signInWithGoogle,
-      required this.signInWithApple,
-      required this.signInWithPhoneNumber,
-      required this.getUserProfile,
-      required this.createUserProfile})
-      : super(key: key);
-  final String title;
-  final Widget child;
-  final Future<void> Function(String id) getUserProfile;
-  final Future<void> Function(String uid) createUserProfile;
-
-  final bool signInWithEmail;
-  final bool signInWithGoogle;
-  final bool signInWithApple;
-  final bool signInWithPhoneNumber;
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-        appBar: AppBar(
-          title: Text(title),
-        ),
-        body: Center(
-          child: Padding(
-            padding: const EdgeInsets.all(30),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 20),
-                  child: Container(
-                    height: 50,
-                    width: MediaQuery.of(context).size.width,
-                    child: ElevatedButton(
-                        onPressed: () {
-                          Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                  builder: (context) => _CreateUserView(
-                                        getUserProfile: getUserProfile,
-                                        createUserProfile: createUserProfile,
-                                        title: title,
-                                        child: child,
-                                      )));
-                        },
-                        child: Text(
-                          'Create user',
-                        )),
-                  ),
-                ),
-                TextButton(
-                    onPressed: () {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) => _SignInView(
-                                    createUserProfile: createUserProfile,
-                                    getUserProfile: getUserProfile,
-                                    title: title,
-                                    child: child,
-                                    signInWithApple: signInWithApple,
-                                    signInWithEmail: signInWithEmail,
-                                    signInWithGoogle: signInWithGoogle,
-                                    signInWithPhoneNumber:
-                                        signInWithPhoneNumber,
-                                  )));
-                    },
-                    child: Text(
-                      'Sign in',
-                    ))
-              ],
-            ),
-          ),
-        ));
-  }
-}
-
-class _CreateUserView extends StatefulWidget {
-  _CreateUserView(
-      {Key? key,
-      required this.title,
-      required this.child,
-      required this.createUserProfile,
-      required this.getUserProfile})
-      : super(key: key);
-  final String title;
-  final Widget child;
-  final Future<void> Function(String uid) createUserProfile;
-  final Future<void> Function(String id) getUserProfile;
-
-  @override
-  __CreateUserViewState createState() => __CreateUserViewState();
-}
-
-class __CreateUserViewState extends State<_CreateUserView> {
-  final _formKey = GlobalKey<FormState>();
-
-  String _name = '';
-  String _email = '';
-  String _password = '';
-
-  @override
-  Widget build(BuildContext context) {
-    final _textTheme = Theme.of(context).textTheme;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
-      ),
-      body: Form(
-        child: ListView(
-          key: _formKey,
-          padding: EdgeInsets.all(30),
-          shrinkWrap: true,
-          children: [
-            Center(
-                child: Text(
-              'Create your account',
-              style: _textTheme.headline6,
-            )),
-            Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: TextFormField(
-                onChanged: (input) => setState(() => _name = input),
-                textInputAction: TextInputAction.next,
-                keyboardType: TextInputType.name,
-                decoration:
-                    InputDecoration(border: InputBorder.none, hintText: 'Name'),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: TextFormField(
-                onChanged: (input) => setState(() => _email = input),
-                textInputAction: TextInputAction.next,
-                keyboardType: TextInputType.emailAddress,
-                decoration: InputDecoration(
-                    border: InputBorder.none, hintText: 'Email address'),
-              ),
-            ),
-            Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: TextFormField(
-                onChanged: (input) => setState(() => _password = input),
-                onFieldSubmitted: (input) {
-                  if (_name.isNotEmpty &&
-                      _email.isNotEmpty &&
-                      _password.isNotEmpty) {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => _LoadingView(
-                                email: _email,
-                                password: _password,
-                                title: widget.title,
-                                onLoad: () async {
-                                  try {
-                                    final _cred = await FirebaseAuth.instance
-                                        .createUserWithEmailAndPassword(
-                                            email: _email, password: _password);
-                                    if (_cred.user != null) {
-                                      if (_cred.additionalUserInfo!.isNewUser) {
-                                        await _cred.user!
-                                            .updateDisplayName(_name);
-                                        await widget
-                                            .createUserProfile(_cred.user!.uid);
-                                      }
-                                      if (!_cred.user!.emailVerified) {
-                                        await _cred.user!
-                                            .sendEmailVerification();
-                                        await FirebaseAuth.instance.signOut();
-                                        throw 'email not verified';
-                                      }
-
-                                      await widget
-                                          .getUserProfile(_cred.user!.uid);
-                                    }
-                                  } on FirebaseAuthException catch (e) {
-                                    if (e.code == 'weak-password') {
-                                      throw 'The password provided is too weak.';
-                                    } else if (e.code ==
-                                        'email-already-in-use') {
-                                      throw 'The account already exists for that email.';
-                                    }
-                                  } catch (e) {
-                                    throw e;
-                                  }
-                                },
-                                child: widget.child)));
-                  }
-                },
-                textInputAction: TextInputAction.done,
-                keyboardType: TextInputType.visiblePassword,
-                obscureText: true,
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Password',
-                ),
-              ),
-            )
-          ],
-        ),
-      ),
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-          padding: EdgeInsets.only(
-              left: 30,
-              right: 30,
-              top: 10,
-              bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: ElevatedButton(
-            child: Text('Create'),
-            onPressed: _name.isEmpty && _password.isEmpty && _email.isEmpty
-                ? null
-                : () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => _LoadingView(
-                                email: _email,
-                                password: _password,
-                                title: widget.title,
-                                onLoad: () async {
-                                  try {
-                                    final _cred = await FirebaseAuth.instance
-                                        .createUserWithEmailAndPassword(
-                                            email: _email, password: _password);
-                                    if (_cred.user != null) {
-                                      if (_cred.additionalUserInfo!.isNewUser) {
-                                        await _cred.user!
-                                            .updateDisplayName(_name);
-                                        await widget
-                                            .createUserProfile(_cred.user!.uid);
-                                      }
-                                      if (!_cred.user!.emailVerified) {
-                                        await _cred.user!
-                                            .sendEmailVerification();
-                                        await FirebaseAuth.instance.signOut();
-                                        throw 'email not verified';
-                                      }
-
-                                      await widget
-                                          .getUserProfile(_cred.user!.uid);
-                                    }
-                                  } on FirebaseAuthException catch (e) {
-                                    if (e.code == 'weak-password') {
-                                      throw 'The password provided is too weak.';
-                                    } else if (e.code ==
-                                        'email-already-in-use') {
-                                      throw 'The account already exists for that email.';
-                                    }
-                                  } catch (e) {
-                                    throw e;
-                                  }
-                                },
-                                child: widget.child)));
-                  },
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SignInView extends StatefulWidget {
-  const _SignInView(
-      {Key? key,
-      required this.title,
-      required this.child,
-      this.signInWithGoogle,
-      this.signInWithApple,
-      this.signInWithEmail,
-      this.signInWithPhoneNumber,
-      required this.getUserProfile,
-      required this.createUserProfile})
-      : super(key: key);
-
-  final String title;
-  final Widget child;
-  final Future<void> Function(String id) getUserProfile;
-  final Future<void> Function(String uid) createUserProfile;
-
-  final Future<UserCredential> Function(String email, String password)?
-      signInWithEmail;
-  final Future<UserCredential> Function()? signInWithGoogle;
-  final Future<UserCredential> Function()? signInWithApple;
-  final Future<void> Function(String phoneNumber, String smsCode)?
-      signInWithPhoneNumber;
-
-  @override
-  __SignInViewState createState() => __SignInViewState();
-}
-
-class __SignInViewState extends State<_SignInView> {
-  String _email = '';
-  String _password = '';
-
-  Widget dividerText(Color color) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 20),
-      child: Row(
+      body: ListView(
+        padding: const EdgeInsets.all(30),
         children: [
-          Expanded(child: Divider()),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10),
-            child: Text(
-              'or',
-              style: TextStyle(color: color),
-            ),
+          Text(
+            'Enter your organization name.',
+            style: Theme.of(context).textTheme.headline6,
+            textAlign: TextAlign.center,
           ),
-          Expanded(child: Divider()),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            controller: _controller,
+            decoration: InputDecoration(
+                hintText: 'Organization name', border: InputBorder.none),
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          ElevatedButton(
+              onPressed: () async {
+                registerNewOrganization(
+                        organizationName: _controller.text, uid: _user!.uid)
+                    .then((value) {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  Navigator.pop(context);
+                  flush(error.toString(), context);
+                });
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => _loadingView()));
+              },
+              child: Text('Register'))
         ],
       ),
     );
   }
 
-  Widget signInWithButton(Icon icon, String text, Function() onPressed) {
-    return Container(
-      height: 44,
-      child: ElevatedButton(
-          onPressed: onPressed,
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              icon,
-              Container(
-                width: 20,
-              ),
-              Text('Sign in with $text')
-            ],
-          )),
+  Widget _errorView(String errorString) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [Icon(Icons.error), Text(errorString)],
+        ),
+      ),
     );
   }
 
-  @override
-  Widget build(BuildContext context) {
-    final _textTheme = Theme.of(context).textTheme;
+  Widget _loadingView() {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.title,
+              style: Theme.of(context).textTheme.headline6,
+            ),
+            CircularProgressIndicator.adaptive(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _emailVerifiedView() {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.email),
+            Padding(padding: EdgeInsets.only(bottom: 20)),
+            Text(
+              'Please verify your email.',
+              style: Theme.of(context).textTheme.headline6,
+              textAlign: TextAlign.center,
+            ),
+            Padding(padding: EdgeInsets.only(bottom: 20)),
+            ElevatedButton(
+                onPressed: () async {
+                  flush('A email just sent', context);
+                  await _user!.sendEmailVerification();
+                },
+                child: Text('Send')),
+            Padding(padding: EdgeInsets.only(bottom: 20)),
+            ElevatedButton(
+                onPressed: () {
+                  setState(() {});
+                },
+                child: Text('Next'))
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _displayNameView() {
+    final _controller = TextEditingController();
+    return StatefulBuilder(builder: (context, setState) {
+      return Scaffold(
+        appBar: AppBar(
+          title: Text('${widget.title}'),
+        ),
+        body: Center(
+          child: ListView(
+            padding: EdgeInsets.all(30),
+            children: [
+              Center(
+                child: Text(
+                  'Enter your name.',
+                  style: Theme.of(context).textTheme.headline6,
+                ),
+              ),
+              Padding(padding: EdgeInsets.only(bottom: 20)),
+              TextField(
+                controller: _controller,
+                keyboardType: TextInputType.name,
+                textInputAction: TextInputAction.done,
+                decoration:
+                    InputDecoration(hintText: 'Name', border: InputBorder.none),
+              ),
+              Padding(padding: EdgeInsets.only(bottom: 20)),
+              ElevatedButton(
+                  onPressed: () async {
+                    _user!
+                        .updateDisplayName(_controller.text)
+                        .then((value) => Navigator.pop(context))
+                        .onError((error, stackTrace) {
+                      Navigator.pop(context);
+                      flush(error.toString(), context);
+                    });
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) => _loadingView()));
+                  },
+                  child: Text('Next')),
+            ],
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _createAndSignInView() {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                  height: 50,
+                  width: MediaQuery.of(context).size.width,
+                  child: ElevatedButton(
+                      onPressed: () {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => _createView()));
+                      },
+                      child: Text('Create account'))),
+              Padding(padding: EdgeInsets.only(bottom: 20)),
+              TextButton(
+                  onPressed: () {
+                    Navigator.push(context,
+                        MaterialPageRoute(builder: (context) => _signInView()));
+                  },
+                  child: Text('Sign in'))
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _createView() {
+    final _emailController = TextEditingController();
+    final _passwordController = TextEditingController();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(30),
+        children: [
+          Text(
+            'Create account with Email address and Password.',
+            style: Theme.of(context).textTheme.headline6,
+            textAlign: TextAlign.center,
+          ),
+          Padding(padding: EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+                hintText: 'Email address', border: InputBorder.none),
+          ),
+          Padding(padding: EdgeInsets.only(bottom: 20)),
+          TextFormField(
+              controller: _passwordController,
+              obscureText: true,
+              keyboardType: TextInputType.visiblePassword,
+              textInputAction: TextInputAction.done,
+              decoration: InputDecoration(
+                  hintText: 'Password', border: InputBorder.none)),
+          Padding(padding: EdgeInsets.only(bottom: 20)),
+          SignInButton(
+              icon: Icons.email,
+              text: 'Create account with Email',
+              onPressed: () async {
+                createUserWithEmailAndPassword(
+                        _emailController.text, _passwordController.text)
+                    .then((value) {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  Navigator.pop(context);
+                  flush(error.toString(), context);
+                });
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => _loadingView()));
+              })
+        ],
+      ),
+    );
+  }
+
+  Widget _signInView() {
+    final _emailController = TextEditingController();
+    final _passwordController = TextEditingController();
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
       ),
       body: ListView(
         padding: EdgeInsets.all(30),
-        shrinkWrap: true,
         children: [
-          Center(
-              child: Text(
+          Text(
             'Sign in your account',
-            style: _textTheme.headline6,
-          )),
-          Padding(
-            padding: const EdgeInsets.only(top: 20),
-            child: TextFormField(
-              onChanged: (input) {
-                setState(() {
-                  _email = input;
+            style: Theme.of(context).textTheme.headline6,
+            textAlign: TextAlign.center,
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            controller: _emailController,
+            keyboardType: TextInputType.emailAddress,
+            textInputAction: TextInputAction.next,
+            decoration: InputDecoration(
+                border: InputBorder.none, hintText: 'Email address'),
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            obscureText: true,
+            controller: _passwordController,
+            keyboardType: TextInputType.visiblePassword,
+            textInputAction: TextInputAction.done,
+            decoration:
+                InputDecoration(border: InputBorder.none, hintText: 'Password'),
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          SignInButton(
+              icon: Icons.email,
+              text: 'Sign in with Email',
+              onPressed: () {
+                signInWithEmail(_emailController.text, _passwordController.text)
+                    .then((value) {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  Navigator.pop(context);
+                  flush(error.toString(), context);
                 });
-              },
-              textInputAction: TextInputAction.next,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(
-                  border: InputBorder.none, hintText: 'Email address'),
-            ),
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => _loadingView()));
+              }),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          DividerWithText(text: 'or'),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          SignInButton(
+              icon: Icons.phone,
+              text: 'Sign in with Phone',
+              onPressed: () {
+                Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                        builder: (context) => _signInWithPhoneView()));
+              }),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          DividerWithText(text: 'or'),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          SignInButton(
+            icon: FontAwesomeIcons.google,
+            text: 'Sign in with Google',
+            onPressed: () {
+              signInWithGoogle().then((value) {
+                Navigator.pop(context);
+                Navigator.pop(context);
+              }).onError((error, stackTrace) {
+                Navigator.pop(context);
+                flush(error.toString(), context);
+              });
+              Navigator.push(context,
+                  MaterialPageRoute(builder: (context) => _loadingView()));
+            },
           ),
-          Padding(
-            padding: const EdgeInsets.only(top: 20),
-            child: TextFormField(
-              onChanged: (input) {
-                _password = input;
-              },
-              onFieldSubmitted: (input) {
-                if (_email.isNotEmpty && _password.isNotEmpty) {
-                  Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => _LoadingView(
-                              title: widget.title,
-                              onLoad: () async {
-                                final _userCred = await widget.signInWithEmail!(
-                                    _email, _password);
-                                if (_userCred.user != null) {
-                                  if (_userCred.additionalUserInfo!.isNewUser) {
-                                    await widget
-                                        .createUserProfile(_userCred.user!.uid);
-                                  }
-                                  if (!_userCred.user!.emailVerified) {
-                                    await _userCred.user!
-                                        .sendEmailVerification();
-                                    await FirebaseAuth.instance.signOut();
-
-                                    throw 'email not verified on sign in';
-                                  }
-
-                                  await widget
-                                      .getUserProfile(_userCred.user!.uid);
-                                }
-                              },
-                              child: widget.child)));
-                }
-              },
-              textInputAction: TextInputAction.done,
-              keyboardType: TextInputType.visiblePassword,
-              obscureText: true,
-              decoration: InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Password',
-              ),
-            ),
-          ),
-          widget.signInWithPhoneNumber != null
-              ? dividerText(Theme.of(context).dividerColor)
-              : Container(),
-          widget.signInWithPhoneNumber != null
-              ? signInWithButton(
-                  Icon(Icons.phone),
-                  'Phone',
-                  () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => _SignInWithPhoneNumberView(
-                                title: widget.title,
-                                signInWithPhoneNumber:
-                                    widget.signInWithPhoneNumber,
-                                child: widget.child,
-                                getUserProfile: widget.getUserProfile,
-                                createUserProfile: widget.createUserProfile,
-                              ))))
-              : Container(),
-          widget.signInWithApple != null && (Platform.isIOS || kIsWeb)
-              ? dividerText(Theme.of(context).dividerColor)
-              : Container(),
-          widget.signInWithApple != null && (Platform.isIOS || kIsWeb)
-              ? SignInWithAppleButton(
-                  onPressed: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => _LoadingView(
-                              title: widget.title,
-                              onLoad: () async {
-                                final _cred = await widget.signInWithApple!();
-                                if (_cred.user != null) {
-                                  if (_cred.additionalUserInfo!.isNewUser) {
-                                    widget.createUserProfile(_cred.user!.uid);
-                                  }
-                                  widget.getUserProfile(_cred.user!.uid);
-                                }
-                              },
-                              child: widget.child))))
-              : Container(),
-          widget.signInWithGoogle != null
-              ? dividerText(Theme.of(context).dividerColor)
-              : Container(),
-          widget.signInWithGoogle != null
-              ? signInWithButton(
-                  Icon(FontAwesomeIcons.google),
-                  'Google',
-                  () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (context) => _LoadingView(
-                              title: widget.title,
-                              onLoad: () async {
-                                final _userCred =
-                                    await widget.signInWithGoogle!();
-                                if (_userCred.user != null) {
-                                  if (_userCred.additionalUserInfo!.isNewUser) {
-                                    await widget
-                                        .createUserProfile(_userCred.user!.uid);
-                                  }
-                                  await widget
-                                      .getUserProfile(_userCred.user!.uid);
-                                }
-                              },
-                              child: widget.child))))
-              : Container()
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          DividerWithText(text: 'or'),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          SignInWithAppleButton(onPressed: () {
+            signInWithApple().then((value) {
+              Navigator.pop(context);
+              Navigator.pop(context);
+            }).onError((error, stackTrace) {
+              Navigator.pop(context);
+              flush(error.toString(), context);
+            });
+            Navigator.push(context,
+                MaterialPageRoute(builder: (context) => _loadingView()));
+          })
         ],
-      ),
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-          padding: EdgeInsets.only(
-              left: 30,
-              right: 30,
-              top: 10,
-              bottom: MediaQuery.of(context).viewInsets.bottom),
-          child: ElevatedButton(
-            child: Text('Sign in'),
-            onPressed: _email.isEmpty && _password.isEmpty
-                ? null
-                : () {
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => _LoadingView(
-                                title: widget.title,
-                                onLoad: () async {
-                                  final _userCred = await widget
-                                      .signInWithEmail!(_email, _password);
-                                  if (_userCred.user != null) {
-                                    if (_userCred
-                                        .additionalUserInfo!.isNewUser) {
-                                      await widget.createUserProfile(
-                                          _userCred.user!.uid);
-                                    }
-                                    if (!_userCred.user!.emailVerified) {
-                                      await _userCred.user!
-                                          .sendEmailVerification();
-                                      await FirebaseAuth.instance.signOut();
-
-                                      throw 'email not verified on sign in';
-                                    }
-
-                                    await widget
-                                        .getUserProfile(_userCred.user!.uid);
-                                  }
-                                },
-                                child: widget.child)));
-                  },
-          ),
-        ),
       ),
     );
   }
-}
 
-class _LoadingView extends StatefulWidget {
-  const _LoadingView(
-      {Key? key,
-      required this.title,
-      required this.onLoad,
-      this.duration = const Duration(seconds: 1),
-      this.timeLimit = const Duration(seconds: 180),
-      required this.child,
-      this.email,
-      this.password})
-      : super(key: key);
-  final Future<void> Function() onLoad;
-  final Duration duration;
-  final String title;
-  final Widget child;
-  final Duration timeLimit;
-  final String? email;
-  final String? password;
-
-  @override
-  __LoadingViewState createState() => __LoadingViewState();
-}
-
-class __LoadingViewState extends State<_LoadingView> {
-  bool _isLoading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _init();
-  }
-
-  Future<void> _init() async {
-    try {
-      await Future.wait([Future.delayed(widget.duration), widget.onLoad()])
-          .timeout(widget.timeLimit, onTimeout: () => throw ('Time out'));
-    } catch (e) {
-      _error = e.toString();
-    }
-    setState(() {
-      _isLoading = false;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    print(_error);
-    if (_isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          automaticallyImplyLeading: false,
-          title: Text(widget.title),
-        ),
-        body: Center(
-          child: SpinKitCircle(
-            color: Theme.of(context).primaryColor,
-          ),
-        ),
-      );
-    } else if (_error == 'email not verified') {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(widget.title),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.email,
-                size: 60,
-                color: Theme.of(context).primaryColor,
-              ),
-              Text(
-                'A email has just send to you, please verify.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headline6,
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  await FirebaseAuth.instance.currentUser!
-                      .sendEmailVerification();
-                },
-                child: Text('Send again'),
-              ),
-              ElevatedButton(
-                  onPressed: () async {
-                    setState(() {
-                      _error = null;
-                      _isLoading = true;
-                    });
-                    try {
-                      final _userCred = await FirebaseAuth.instance
-                          .signInWithEmailAndPassword(
-                              email: widget.email!, password: widget.password!);
-                      if (_userCred.user != null &&
-                          _userCred.user!.emailVerified) {
-                      } else {
-                        await FirebaseAuth.instance.signOut();
-                        throw 'email not verified';
-                      }
-                    } catch (e) {
-                      print(e);
-                      _error = e.toString();
-                    }
-                    setState(() {
-                      _isLoading = false;
-                    });
-                  },
-                  child: Text('next'))
-            ],
-          ),
-        ),
-      );
-    } else if (_error == 'email not verified on sign in') {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(widget.title),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.email,
-                size: 60,
-                color: Theme.of(context).primaryColor,
-              ),
-              Text(
-                'A email has just send to you, please verify.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headline6,
-              ),
-              ElevatedButton(
-                onPressed: () async {
-                  await FirebaseAuth.instance.currentUser!
-                      .sendEmailVerification();
-                },
-                child: Text('Send again'),
-              ),
-              ElevatedButton(
-                  onPressed: () async {
-                    setState(() {
-                      _error = null;
-                      _isLoading = true;
-                    });
-                    await _init();
-                  },
-                  child: Text('next'))
-            ],
-          ),
-        ),
-      );
-    } else if (_error != null) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text(widget.title),
-        ),
-        body: Center(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(
-                Icons.cancel_outlined,
-                size: 60,
-                color: Theme.of(context).primaryColor,
-              ),
-              Text(
-                _error.toString(),
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headline6,
-              ),
-              ElevatedButton(
-                  onPressed: () async {
-                    setState(() {
-                      _error = null;
-                      _isLoading = true;
-                    });
-                    await _init();
-                  },
-                  child: Text('Retry'))
-            ],
-          ),
-        ),
-      );
-    } else {
-      return widget.child;
-    }
-  }
-}
-
-class _SignInWithPhoneNumberView extends StatefulWidget {
-  _SignInWithPhoneNumberView(
-      {Key? key,
-      required this.title,
-      required this.signInWithPhoneNumber,
-      required this.child,
-      required this.getUserProfile,
-      required this.createUserProfile})
-      : super(key: key);
-  final String title;
-  final Future<void> Function(String phoneNumber, String smsCode)?
-      signInWithPhoneNumber;
-  final Widget child;
-  final Future<void> Function(String id) getUserProfile;
-  final Future<void> Function(String uid) createUserProfile;
-
-  @override
-  __SignInWithPhoneNumberViewState createState() =>
-      __SignInWithPhoneNumberViewState();
-}
-
-class __SignInWithPhoneNumberViewState
-    extends State<_SignInWithPhoneNumberView> {
-  String? _phoneNumber;
-  String? _smsCode;
-  String _phoneNumberError = '';
-
-  String? _verificationId;
-
-  Future<void> _signInWithPhoneNumber() async {
-    await FirebaseAuth.instance.verifyPhoneNumber(
-        phoneNumber: _phoneNumber!,
-        verificationCompleted: (PhoneAuthCredential credential) async {
-          await FirebaseAuth.instance.signInWithCredential(credential);
-        },
-        verificationFailed: (FirebaseAuthException e) async {
-          if (e.code == 'invalid-phone-number') {
-            setState(() {
-              _phoneNumberError = 'The provided phone number is not valid';
-            });
-          }
-        },
-        codeSent: (String verificationId, int? resendToken) async {
-          setState(() {
-            _phoneNumberError = '';
-          });
-          setState(() {
-            _verificationId = verificationId;
-            print(_verificationId);
-          });
-        },
-        timeout: const Duration(seconds: 60),
-        codeAutoRetrievalTimeout: (String verificationId) {});
-  }
-
-  @override
-  Widget build(BuildContext context) {
+  Widget _signInWithPhoneView() {
+    final _controller = TextEditingController();
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
@@ -1021,93 +545,94 @@ class __SignInWithPhoneNumberViewState
       body: ListView(
         padding: const EdgeInsets.all(30),
         children: [
-          Center(
-            child: Text(
-              'Sign in with Phone number.',
-              style: Theme.of(context).textTheme.headline6,
-            ),
+          Text(
+            'Sign in with your phone number',
+            style: Theme.of(context).textTheme.headline6,
+            textAlign: TextAlign.center,
           ),
-          Padding(
-            padding: const EdgeInsets.only(top: 20),
-            child: TextFormField(
-              keyboardType: TextInputType.phone,
-              textInputAction: TextInputAction.send,
-              decoration: InputDecoration(
-                  hintText: 'Phone number',
-                  errorText: _phoneNumberError,
-                  border: InputBorder.none),
-              onChanged: (input) {
-                setState(() {
-                  _phoneNumber = input;
-                });
-              },
-            ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            controller: _controller,
+            decoration: InputDecoration(
+                prefixText: '+852',
+                hintText: 'Phone number',
+                border: InputBorder.none),
           ),
-          Visibility(
-            visible: _verificationId != null,
-            child: Padding(
-              padding: const EdgeInsets.only(top: 20),
-              child: TextFormField(
-                textInputAction: TextInputAction.send,
-                decoration: InputDecoration(
-                    hintText: 'Verification code', border: InputBorder.none),
-                onChanged: (input) {
-                  setState(() {
-                    _smsCode = input;
-                  });
-                },
-              ),
-            ),
-          )
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          SignInButton(
+              icon: Icons.message,
+              text: 'Send',
+              onPressed: () async {
+                await FirebaseAuth.instance.verifyPhoneNumber(
+                    phoneNumber: '+852${_controller.text}',
+                    verificationCompleted:
+                        (PhoneAuthCredential credential) async {
+                      await FirebaseAuth.instance
+                          .signInWithCredential(credential);
+                    },
+                    verificationFailed: (FirebaseAuthException e) async {
+                      if (e.code == 'invalid-phone-number') {
+                        flush('Phone number is invalid', context);
+                      }
+                      flush(e.toString(), context);
+                    },
+                    codeSent: (String verificationId, int? resendToken) async {
+                      Navigator.push(
+                          context,
+                          MaterialPageRoute(
+                              builder: (context) =>
+                                  _smsCodeVerifyView(verificationId)));
+                    },
+                    timeout: const Duration(seconds: 60),
+                    codeAutoRetrievalTimeout: (String verificationId) {});
+              })
         ],
       ),
-      bottomNavigationBar: BottomAppBar(
-        child: Padding(
-            padding: EdgeInsets.only(
-                top: 10,
-                left: 30,
-                right: 30,
-                bottom: MediaQuery.of(context).viewInsets.bottom),
-            child: _verificationId == null
-                ? ElevatedButton(
-                    onPressed: _phoneNumber == null || _phoneNumber == ''
-                        ? null
-                        : () async {
-                            await _signInWithPhoneNumber();
-                          },
-                    child: Text('Send SMS'),
-                  )
-                : ElevatedButton(
-                    onPressed: _smsCode == null || _smsCode == ''
-                        ? null
-                        : () async {
-                            Navigator.push(
-                                context,
-                                MaterialPageRoute(
-                                    builder: (context) => _LoadingView(
-                                        title: widget.title,
-                                        onLoad: () async {
-                                          final PhoneAuthCredential credential =
-                                              PhoneAuthProvider.credential(
-                                                  verificationId:
-                                                      _verificationId!,
-                                                  smsCode: _smsCode!);
-                                          final _userCred = await FirebaseAuth
-                                              .instance
-                                              .signInWithCredential(credential);
-                                          if (_userCred.user != null) {
-                                            if (_userCred.additionalUserInfo!
-                                                .isNewUser) {
-                                              await widget.createUserProfile(
-                                                  _userCred.user!.uid);
-                                            }
-                                            await widget.getUserProfile(
-                                                _userCred.user!.uid);
-                                          }
-                                        },
-                                        child: widget.child)));
-                          },
-                    child: Text('Sign in'))),
+    );
+  }
+
+  Widget _smsCodeVerifyView(String verificationId) {
+    final _controller = TextEditingController();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(30),
+        children: [
+          Text(
+            'Enter the sms code you received',
+            style: Theme.of(context).textTheme.headline6,
+            textAlign: TextAlign.center,
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            controller: _controller,
+            decoration:
+                InputDecoration(hintText: 'SMS code', border: InputBorder.none),
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          SignInButton(
+              icon: Icons.phone,
+              text: 'Sign in with phone',
+              onPressed: () async {
+                PhoneAuthCredential credential = PhoneAuthProvider.credential(
+                    verificationId: verificationId, smsCode: _controller.text);
+                FirebaseAuth.instance
+                    .signInWithCredential(credential)
+                    .then((value) {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  Navigator.pop(context);
+                  flush(error.toString(), context);
+                });
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => _loadingView()));
+              })
+        ],
       ),
     );
   }

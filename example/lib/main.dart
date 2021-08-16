@@ -1,5 +1,4 @@
 import 'package:bridges_login/bridges_login.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
@@ -22,15 +21,38 @@ class MyApp extends StatelessWidget {
   }
 }
 
-class MyView extends StatelessWidget {
-  const MyView({Key? key}) : super(key: key);
+class MyView extends StatefulWidget {
+  @override
+  _MyViewState createState() => _MyViewState();
+}
+
+class _MyViewState extends State<MyView> {
+  UserProfile? _userProfile;
 
   @override
   Widget build(BuildContext context) {
-    return BridgesLoginView(onSplash: () async {}, validUser: () async {
-      final _user = FirebaseAuth.instance.currentUser!;
-      return _user.emailVerified && _user.displayName != null;
-    },);
+    return BridgesLoginView(
+      child: Scaffold(
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text('Signed in'),
+              ElevatedButton(
+                  onPressed: () {
+                    FirebaseAuth.instance.signOut();
+                  },
+                  child: Text('Sign out')),
+              Text(
+                  'Current organization: ${_userProfile?.selectedOrganization.path}'),
+              Text('Selectable organization'),
+            ],
+          ),
+        ),
+      ),
+      whenDone: (userProfile) {
+        _userProfile = userProfile;
+      },
+    );
   }
 }
-
