@@ -111,6 +111,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                 if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
                   userProfile = UserProfile(
                       uid: _user!.uid,
+                      name: _user!.displayName!,
                       role: Role.values
                           .elementAt(snapshot.data!.docs.first.data()['role']),
                       registerDate: snapshot.data!.docs.first
