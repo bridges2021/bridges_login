@@ -108,20 +108,20 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                   return _loadingView();
                 }
 
-                userProfile = UserProfile(
-                    uid: _user!.uid,
-                    role: Role.values
-                        .elementAt(snapshot.data!.docs.first.data()['role']),
-                    registerDate:
-                        snapshot.data!.docs.first.data()['registerDate'],
-                    organizations: snapshot.data!.docs
-                        .map((e) => e.reference.parent.parent!)
-                        .toList());
-                widget.whenDone(userProfile!);
-                if (userProfile!.organizations.isEmpty) {
-                  return _registerOrganizationView();
-                } else {
+                if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+                  userProfile = UserProfile(
+                      uid: _user!.uid,
+                      role: Role.values
+                          .elementAt(snapshot.data!.docs.first.data()['role']),
+                      registerDate:
+                          snapshot.data!.docs.first.data()['registerDate'],
+                      organizations: snapshot.data!.docs
+                          .map((e) => e.reference.parent.parent!)
+                          .toList());
+                  widget.whenDone(userProfile!);
                   return widget.child;
+                } else {
+                  return _registerOrganizationView();
                 }
               },
             );
