@@ -98,7 +98,8 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                   .collectionGroup('Users')
                   .where('uid', isEqualTo: _user!.uid)
                   .snapshots(),
-              builder: (context, AsyncSnapshot<QuerySnapshot> snapshot) {
+              builder: (context,
+                  AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
                 if (snapshot.hasError) {
                   return _errorView(snapshot.error.toString());
                 }
@@ -109,6 +110,10 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
 
                 userProfile = UserProfile(
                     uid: _user!.uid,
+                    role: Role.values
+                        .elementAt(snapshot.data!.docs.first.data()['role']),
+                    registerDate:
+                        snapshot.data!.docs.first.data()['registerDate'],
                     organizations: snapshot.data!.docs
                         .map((e) => e.reference.parent.parent!)
                         .toList());
@@ -175,7 +180,9 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
               ElevatedButton(
                   onPressed: () async {
                     registerOrganization(
-                            referralCode: _controller.text, uid: _user!.uid)
+                            referralCode: _controller.text,
+                            uid: _user!.uid,
+                            name: _user!.displayName!)
                         .then((value) {
                       Navigator.pop(context);
                     }).onError((error, stackTrace) {
@@ -219,7 +226,9 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
           ElevatedButton(
               onPressed: () async {
                 registerNewOrganization(
-                        organizationName: _controller.text, uid: _user!.uid)
+                        organizationName: _controller.text,
+                        uid: _user!.uid,
+                        name: _user!.displayName!)
                     .then((value) {
                   Navigator.pop(context);
                   Navigator.pop(context);

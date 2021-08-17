@@ -1,7 +1,7 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 
 Future<void> registerNewOrganization(
-    {required String organizationName, required String uid}) async {
+    {required String organizationName, required String uid, required String name}) async {
   final _doc = await FirebaseFirestore.instance
       .collection('Organizations')
       .doc(organizationName)
@@ -14,6 +14,6 @@ Future<void> registerNewOrganization(
         .set({'createDate': DateTime.now()});
     await FirebaseFirestore.instance
         .doc('Organizations/$organizationName/Users/$uid')
-        .set({'uid': uid, 'role': 'owner'});
+        .set({'uid': uid, 'role': 0, 'registerDate': DateTime.now(), 'name': name});
   }
 }
