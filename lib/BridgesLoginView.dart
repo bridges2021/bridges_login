@@ -113,8 +113,9 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                       uid: _user!.uid,
                       role: Role.values
                           .elementAt(snapshot.data!.docs.first.data()['role']),
-                      registerDate:
-                          snapshot.data!.docs.first.data()['registerDate'].toDate(),
+                      registerDate: snapshot.data!.docs.first
+                          .data()['registerDate']
+                          .toDate(),
                       organizations: snapshot.data!.docs
                           .map((e) => e.reference.parent.parent!)
                           .toList());
@@ -179,20 +180,20 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
               Padding(padding: const EdgeInsets.only(bottom: 20)),
               ElevatedButton(
                   onPressed: () async {
-                    registerOrganization(
+                    // Navigator.push(
+                    //     context,
+                    //     MaterialPageRoute(
+                    //         builder: (context) => _loadingView()));
+                    await registerOrganization(
                             referralCode: _controller.text,
                             uid: _user!.uid,
                             name: _user!.displayName!)
                         .then((value) {
-                      Navigator.pop(context);
+                      // Navigator.pop(context);
                     }).onError((error, stackTrace) {
-                      Navigator.pop(context);
+                      // Navigator.pop(context);
                       flush(error.toString(), context);
                     });
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => _loadingView()));
                   },
                   child: Text('Next'))
             ],
