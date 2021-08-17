@@ -114,7 +114,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                       role: Role.values
                           .elementAt(snapshot.data!.docs.first.data()['role']),
                       registerDate:
-                          snapshot.data!.docs.first.data()['registerDate'],
+                          snapshot.data!.docs.first.data()['registerDate'].toDate(),
                       organizations: snapshot.data!.docs
                           .map((e) => e.reference.parent.parent!)
                           .toList());
