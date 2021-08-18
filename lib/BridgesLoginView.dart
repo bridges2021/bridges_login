@@ -574,35 +574,47 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
               icon: Icons.message,
               text: 'Send',
               onPressed: () async {
-                await FirebaseAuth.instance.verifyPhoneNumber(
-                    phoneNumber: '+852${_controller.text}',
-                    verificationCompleted:
-                        (PhoneAuthCredential credential) async {
-                      await FirebaseAuth.instance
-                          .signInWithCredential(credential);
-                    },
-                    verificationFailed: (FirebaseAuthException e) async {
-                      if (e.code == 'invalid-phone-number') {
-                        flush('Phone number is invalid', context);
-                      }
-                      flush(e.toString(), context);
-                    },
-                    codeSent: (String verificationId, int? resendToken) async {
-                      Navigator.push(
-                          context,
-                          MaterialPageRoute(
-                              builder: (context) =>
-                                  _smsCodeVerifyView(verificationId)));
-                    },
-                    timeout: const Duration(seconds: 60),
-                    codeAutoRetrievalTimeout: (String verificationId) {});
+                if (kIsWeb) {
+                  final confirmationResult = await FirebaseAuth.instance
+                      .signInWithPhoneNumber('+852${_controller.text}');
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => _smsCodeVerifyView(
+                              confirmationResult: confirmationResult)));
+                } else {
+                  await FirebaseAuth.instance.verifyPhoneNumber(
+                      phoneNumber: '+852${_controller.text}',
+                      verificationCompleted:
+                          (PhoneAuthCredential credential) async {
+                        await FirebaseAuth.instance
+                            .signInWithCredential(credential);
+                      },
+                      verificationFailed: (FirebaseAuthException e) async {
+                        if (e.code == 'invalid-phone-number') {
+                          flush('Phone number is invalid', context);
+                        }
+                        flush(e.toString(), context);
+                      },
+                      codeSent:
+                          (String verificationId, int? resendToken) async {
+                        Navigator.push(
+                            context,
+                            MaterialPageRoute(
+                                builder: (context) => _smsCodeVerifyView(
+                                    verificationId: verificationId)));
+                      },
+                      timeout: const Duration(seconds: 60),
+                      codeAutoRetrievalTimeout: (String verificationId) {});
+                }
               })
         ],
       ),
     );
   }
 
-  Widget _smsCodeVerifyView(String verificationId) {
+  Widget _smsCodeVerifyView(
+      {String? verificationId, ConfirmationResult? confirmationResult}) {
     final _controller = TextEditingController();
     return Scaffold(
       appBar: AppBar(
@@ -627,21 +639,36 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
               icon: Icons.phone,
               text: 'Sign in with phone',
               onPressed: () async {
-                PhoneAuthCredential credential = PhoneAuthProvider.credential(
-                    verificationId: verificationId, smsCode: _controller.text);
-                FirebaseAuth.instance
-                    .signInWithCredential(credential)
-                    .then((value) {
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                  Navigator.pop(context);
-                }).onError((error, stackTrace) {
-                  Navigator.pop(context);
-                  flush(error.toString(), context);
-                });
-                Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => _loadingView()));
+                if (kIsWeb) {
+                  confirmationResult!.confirm(_controller.text).then((value) {
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                  }).onError((error, stackTrace) {
+                    Navigator.pop(context);
+                    flush(error.toString(), context);
+                  });
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => _loadingView()));
+                } else {
+                  PhoneAuthCredential credential = PhoneAuthProvider.credential(
+                      verificationId: verificationId!,
+                      smsCode: _controller.text);
+                  FirebaseAuth.instance
+                      .signInWithCredential(credential)
+                      .then((value) {
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                    Navigator.pop(context);
+                  }).onError((error, stackTrace) {
+                    Navigator.pop(context);
+                    flush(error.toString(), context);
+                  });
+                  Navigator.push(context,
+                      MaterialPageRoute(builder: (context) => _loadingView()));
+                }
               })
         ],
       ),
