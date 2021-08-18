@@ -33,24 +33,3 @@ BridgesLoginView(
   child: MainView()
 );
 ```
-2. Return the user ID to onSplash, or other things to load when splashing.
-```dart
-onSplash: () async {
-  return 'userId';
-}
-```
-3. Add sign in method, leave it blank if not avaible, some default method is created in this package, you can also use your own method.
-```dart
-signInWithApple: signInWithApple,
-signInWithGoogle: signInWithGoogle,
-signInWithEmail: signInWithEmail,
-signInWithPhoneNumver: signInWithPhoneNumber,
-```
-4. Load the user profile with user ID, and provide create profile function which triggered when user is new user.
-```dart
-createUserProfile: (id) async {
-  FirebaseFirestore.instance.doc('Users/$id).set({});
-}
-getUserProfile: (id) async {
-  FirebaseFirestore.instance.doc('Users/$id').get();
-}
