@@ -35,29 +35,29 @@ class BridgesLoginView extends StatefulWidget {
   final Function(UserProfile userProfile) whenDone;
 
   /// Open sign in with Apple option, default to be true.
-  final bool signInWithApple;
+  final bool canSignInWithApple;
 
   /// Open sign in with Google option, default to be true.
-  final bool signInWithGoogle;
+  final bool canSignInWithGoogle;
 
   /// Open sign in with Email option, default to be true.
-  final bool signInWithEmail;
+  final bool canSignInWithEmail;
 
   /// Open sign in with PhoneNumber option, default to be true.
-  final bool signInWithPhoneNumber;
+  final bool canSignInWithPhoneNumber;
 
   final bool allowRegisterNewOrganization;
 
-  const BridgesLoginView(
+  BridgesLoginView(
       {Key? key,
-      this.title = 'Bridges',
-      required this.child,
-      required this.whenDone,
-      this.signInWithApple = true,
-      this.signInWithEmail = true,
-      this.signInWithGoogle = true,
-      this.signInWithPhoneNumber = true,
-      this.allowRegisterNewOrganization = true})
+        this.title = 'Bridges',
+        required this.child,
+        required this.whenDone,
+        this.canSignInWithApple = true,
+        this.canSignInWithEmail = true,
+        this.canSignInWithGoogle = true,
+        this.canSignInWithPhoneNumber = true,
+        this.allowRegisterNewOrganization = true})
       : super(key: key);
 
   @override
@@ -66,6 +66,7 @@ class BridgesLoginView extends StatefulWidget {
 
 class _BridgesLoginViewState extends State<BridgesLoginView> {
   User? _user;
+
   bool get _userValid => _user!.displayName != null;
 
   /// email verify bug
@@ -83,130 +84,94 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
       stream: FirebaseAuth.instance.userChanges(),
       builder: (context, AsyncSnapshot<User?> userSnapshot) {
         if (userSnapshot.hasError) {
-          return _errorView(userSnapshot.error.toString());
+          return _errorView(context, userSnapshot.error.toString());
         }
 
         if (userSnapshot.connectionState == ConnectionState.waiting) {
-          return _loadingView();
+          return _loadingView(context);
         }
 
         if (userSnapshot.data != null) {
           _user = userSnapshot.data;
           if (_userValid) {
-            return StreamBuilder(
-              stream: FirebaseFirestore.instance
-                  .collectionGroup('Users')
-                  .where('uid', isEqualTo: _user!.uid)
-                  .snapshots(),
-              builder: (context,
-                  AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
-                if (snapshot.hasError) {
-                  return _errorView(snapshot.error.toString());
-                }
-
-                if (snapshot.connectionState == ConnectionState.waiting) {
-                  return _loadingView();
-                }
-
-                if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
-                  userProfile = UserProfile(
-                      uid: _user!.uid,
-                      name: _user!.displayName!,
-                      role: Role.values
-                          .elementAt(snapshot.data!.docs.first.data()['role']),
-                      registerDate: snapshot.data!.docs.first
-                          .data()['registerDate']
-                          .toDate(),
-                      organizations: snapshot.data!.docs
-                          .map((e) => e.reference.parent.parent!)
-                          .toList());
-                  widget.whenDone(userProfile!);
-                  return widget.child;
-                } else {
-                  return _registerOrganizationView();
-                }
-              },
-            );
+            return _UserValidView(user: _user!, title: widget.title, child: widget.child, whenDone: widget.whenDone, allowRegisterNewOrganization: widget.allowRegisterNewOrganization);
           } else {
             /// email verify bug
             // if (!_user!.emailVerified) {
             //   return _emailVerifiedView();
             // }
             if (_user!.displayName == null) {
-              return _displayNameView();
+              return _displayNameView(context);
             }
-            return _errorView('Verification error');
+            return _errorView(context, 'Verification error');
           }
         } else {
-          return _createAndSignInView();
+          return _createAndSignInView(context);
         }
       },
     );
   }
 
-  Widget _registerOrganizationView() {
+  Widget _registerOrganizationView(BuildContext context) {
     final _controller = TextEditingController();
-    return StatefulBuilder(
-      builder: (context, setState) {
-        return Scaffold(
-          appBar: AppBar(
-            title: Text('${widget.title}'),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(30),
+        children: [
+          Text(
+            'Enter your referral code.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headline6,
           ),
-          body: ListView(
-            padding: const EdgeInsets.all(30),
-            children: [
-              Text(
-                'Enter your referral code.',
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.headline6,
-              ),
-              Padding(padding: const EdgeInsets.only(bottom: 20)),
-              Visibility(
-                  visible: widget.allowRegisterNewOrganization,
-                  child: TextButton(
-                      onPressed: () {
-                        Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                                builder: (context) =>
-                                    _registerNewOrganizationView()));
-                      },
-                      child: Text('Register a new organization'))),
-              Padding(padding: const EdgeInsets.only(bottom: 20)),
-              TextField(
-                controller: _controller,
-                decoration: InputDecoration(
-                    hintText: 'Referral code', border: InputBorder.none),
-              ),
-              Padding(padding: const EdgeInsets.only(bottom: 20)),
-              ElevatedButton(
-                  onPressed: () async {
-                    // Navigator.push(
-                    //     context,
-                    //     MaterialPageRoute(
-                    //         builder: (context) => _loadingView()));
-                    await registerOrganization(
-                            referralCode: _controller.text,
-                            uid: _user!.uid,
-                            name: _user!.displayName!)
-                        .then((value) {
-                      // Navigator.pop(context);
-                    }).onError((error, stackTrace) {
-                      // Navigator.pop(context);
-                      flush(error.toString(), context);
-                    });
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          Visibility(
+              visible: widget.allowRegisterNewOrganization,
+              child: TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) =>
+                                _registerNewOrganizationView(context)));
                   },
-                  child: Text('Next'))
-            ],
+                  child: Text('Register a new organization'))),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextField(
+            controller: _controller,
+            decoration: InputDecoration(
+                hintText: 'Referral code', border: InputBorder.none),
           ),
-        );
-      },
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          ElevatedButton(
+              onPressed: () async {
+                // Navigator.push(
+                //     context,
+                //     MaterialPageRoute(
+                //         builder: (context) => _loadingView()));
+                await registerOrganization(
+                    referralCode: _controller.text,
+                    uid: _user!.uid,
+                    name: _user!.displayName!)
+                    .then((value) {
+                  // Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  // Navigator.pop(context);
+                  flush(error.toString(), context);
+                });
+              },
+              child: Text('Next'))
+        ],
+      ),
     );
   }
 
-  Widget _registerNewOrganizationView() {
+  Widget _registerNewOrganizationView(BuildContext context) {
     final _controller = TextEditingController();
     return Scaffold(
+      resizeToAvoidBottomInset: false,
       appBar: AppBar(
         title: Text('${widget.title}'),
       ),
@@ -228,9 +193,9 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
           ElevatedButton(
               onPressed: () async {
                 registerNewOrganization(
-                        organizationName: _controller.text,
-                        uid: _user!.uid,
-                        name: _user!.displayName!)
+                    organizationName: _controller.text,
+                    uid: _user!.uid,
+                    name: _user!.displayName!)
                     .then((value) {
                   Navigator.pop(context);
                   Navigator.pop(context);
@@ -239,7 +204,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                   flush(error.toString(), context);
                 });
                 Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => _loadingView()));
+                    MaterialPageRoute(builder: (context) => _loadingView(context)));
               },
               child: Text('Register'))
         ],
@@ -247,7 +212,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
     );
   }
 
-  Widget _errorView(String errorString) {
+  Widget _errorView(BuildContext context,String errorString) {
     return Scaffold(
       appBar: AppBar(
         title: Text(widget.title),
@@ -261,7 +226,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
     );
   }
 
-  Widget _loadingView() {
+  Widget _loadingView(BuildContext context) {
     return Scaffold(
       body: Center(
         child: Column(
@@ -278,7 +243,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
     );
   }
 
-  Widget _emailVerifiedView() {
+  Widget _emailVerifiedView(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.title}'),
@@ -304,7 +269,6 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
             Padding(padding: EdgeInsets.only(bottom: 20)),
             ElevatedButton(
                 onPressed: () {
-                  setState(() {});
                 },
                 child: Text('Next'))
           ],
@@ -313,55 +277,53 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
     );
   }
 
-  Widget _displayNameView() {
+  Widget _displayNameView(BuildContext context) {
     final _controller = TextEditingController();
-    return StatefulBuilder(builder: (context, setState) {
-      return Scaffold(
-        appBar: AppBar(
-          title: Text('${widget.title}'),
-        ),
-        body: Center(
-          child: ListView(
-            padding: EdgeInsets.all(30),
-            children: [
-              Center(
-                child: Text(
-                  'Enter your name.',
-                  style: Theme.of(context).textTheme.headline6,
-                ),
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: Center(
+        child: ListView(
+          padding: EdgeInsets.all(30),
+          children: [
+            Center(
+              child: Text(
+                'Enter your name.',
+                style: Theme.of(context).textTheme.headline6,
               ),
-              Padding(padding: EdgeInsets.only(bottom: 20)),
-              TextField(
-                controller: _controller,
-                keyboardType: TextInputType.name,
-                textInputAction: TextInputAction.done,
-                decoration:
-                    InputDecoration(hintText: 'Name', border: InputBorder.none),
-              ),
-              Padding(padding: EdgeInsets.only(bottom: 20)),
-              ElevatedButton(
-                  onPressed: () async {
-                    _user!
-                        .updateDisplayName(_controller.text)
-                        .then((value) => Navigator.pop(context))
-                        .onError((error, stackTrace) {
-                      Navigator.pop(context);
-                      flush(error.toString(), context);
-                    });
-                    Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                            builder: (context) => _loadingView()));
-                  },
-                  child: Text('Next')),
-            ],
-          ),
+            ),
+            Padding(padding: EdgeInsets.only(bottom: 20)),
+            TextField(
+              controller: _controller,
+              keyboardType: TextInputType.name,
+              textInputAction: TextInputAction.done,
+              decoration:
+              InputDecoration(hintText: 'Name', border: InputBorder.none),
+            ),
+            Padding(padding: EdgeInsets.only(bottom: 20)),
+            ElevatedButton(
+                onPressed: () async {
+                  _user!
+                      .updateDisplayName(_controller.text)
+                      .then((value) => Navigator.pop(context))
+                      .onError((error, stackTrace) {
+                    Navigator.pop(context);
+                    flush(error.toString(), context);
+                  });
+                  Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                          builder: (context) => _loadingView(context)));
+                },
+                child: Text('Next')),
+          ],
         ),
-      );
-    });
+      ),
+    );
   }
 
-  Widget _createAndSignInView() {
+  Widget _createAndSignInView(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
         title: Text('${widget.title}'),
@@ -380,14 +342,14 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                         Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (context) => _createView()));
+                                builder: (context) => _createView(context)));
                       },
                       child: Text('Create account'))),
               Padding(padding: EdgeInsets.only(bottom: 20)),
               TextButton(
                   onPressed: () {
                     Navigator.push(context,
-                        MaterialPageRoute(builder: (context) => _signInView()));
+                        MaterialPageRoute(builder: (context) => _signInView(context)));
                   },
                   child: Text('Sign in'))
             ],
@@ -397,7 +359,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
     );
   }
 
-  Widget _createView() {
+  Widget _createView(BuildContext context) {
     final _emailController = TextEditingController();
     final _passwordController = TextEditingController();
     return Scaffold(
@@ -434,7 +396,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
               text: 'Create account with Email',
               onPressed: () async {
                 createUserWithEmailAndPassword(
-                        _emailController.text, _passwordController.text)
+                    _emailController.text, _passwordController.text)
                     .then((value) {
                   Navigator.pop(context);
                   Navigator.pop(context);
@@ -443,14 +405,14 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                   flush(error.toString(), context);
                 });
                 Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => _loadingView()));
+                    MaterialPageRoute(builder: (context) => _loadingView(context)));
               })
         ],
       ),
     );
   }
 
-  Widget _signInView() {
+  Widget _signInView(BuildContext context) {
     final _emailController = TextEditingController();
     final _passwordController = TextEditingController();
     return Scaffold(
@@ -480,7 +442,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
             keyboardType: TextInputType.visiblePassword,
             textInputAction: TextInputAction.done,
             decoration:
-                InputDecoration(border: InputBorder.none, hintText: 'Password'),
+            InputDecoration(border: InputBorder.none, hintText: 'Password'),
           ),
           Padding(padding: const EdgeInsets.only(bottom: 20)),
           SignInButton(
@@ -496,7 +458,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                   flush(error.toString(), context);
                 });
                 Navigator.push(context,
-                    MaterialPageRoute(builder: (context) => _loadingView()));
+                    MaterialPageRoute(builder: (context) => _loadingView(context)));
               }),
           Padding(padding: const EdgeInsets.only(bottom: 20)),
           DividerWithText(text: 'or'),
@@ -508,7 +470,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                 Navigator.push(
                     context,
                     MaterialPageRoute(
-                        builder: (context) => _signInWithPhoneView()));
+                        builder: (context) => _signInWithPhoneView(context)));
               }),
           Padding(padding: const EdgeInsets.only(bottom: 20)),
           DividerWithText(text: 'or'),
@@ -525,7 +487,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                 flush(error.toString(), context);
               });
               Navigator.push(context,
-                  MaterialPageRoute(builder: (context) => _loadingView()));
+                  MaterialPageRoute(builder: (context) => _loadingView(context)));
             },
           ),
           Padding(padding: const EdgeInsets.only(bottom: 20)),
@@ -540,14 +502,14 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
               flush(error.toString(), context);
             });
             Navigator.push(context,
-                MaterialPageRoute(builder: (context) => _loadingView()));
+                MaterialPageRoute(builder: (context) => _loadingView(context)));
           })
         ],
       ),
     );
   }
 
-  Widget _signInWithPhoneView() {
+  Widget _signInWithPhoneView(BuildContext context) {
     final _controller = TextEditingController();
     return Scaffold(
       appBar: AppBar(
@@ -580,7 +542,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                   Navigator.push(
                       context,
                       MaterialPageRoute(
-                          builder: (context) => _smsCodeVerifyView(
+                          builder: (context) => _smsCodeVerifyView(context,
                               confirmationResult: confirmationResult)));
                 } else {
                   await FirebaseAuth.instance.verifyPhoneNumber(
@@ -601,7 +563,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                         Navigator.push(
                             context,
                             MaterialPageRoute(
-                                builder: (context) => _smsCodeVerifyView(
+                                builder: (context) => _smsCodeVerifyView(context,
                                     verificationId: verificationId)));
                       },
                       timeout: const Duration(seconds: 60),
@@ -613,7 +575,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
     );
   }
 
-  Widget _smsCodeVerifyView(
+  Widget _smsCodeVerifyView(BuildContext context,
       {String? verificationId, ConfirmationResult? confirmationResult}) {
     final _controller = TextEditingController();
     return Scaffold(
@@ -632,7 +594,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
           TextFormField(
             controller: _controller,
             decoration:
-                InputDecoration(hintText: 'SMS code', border: InputBorder.none),
+            InputDecoration(hintText: 'SMS code', border: InputBorder.none),
           ),
           Padding(padding: const EdgeInsets.only(bottom: 20)),
           SignInButton(
@@ -650,7 +612,7 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                     flush(error.toString(), context);
                   });
                   Navigator.push(context,
-                      MaterialPageRoute(builder: (context) => _loadingView()));
+                      MaterialPageRoute(builder: (context) => _loadingView(context)));
                 } else {
                   PhoneAuthCredential credential = PhoneAuthProvider.credential(
                       verificationId: verificationId!,
@@ -667,9 +629,203 @@ class _BridgesLoginViewState extends State<BridgesLoginView> {
                     flush(error.toString(), context);
                   });
                   Navigator.push(context,
-                      MaterialPageRoute(builder: (context) => _loadingView()));
+                      MaterialPageRoute(builder: (context) => _loadingView(context)));
                 }
               })
+        ],
+      ),
+    );
+  }
+}
+
+class _UserValidView extends StatefulWidget {
+  final User user;
+  final String title;
+  final Function(UserProfile userProfile) whenDone;
+  final Widget child;
+  final bool allowRegisterNewOrganization;
+
+  const _UserValidView({Key? key, required this.user, required this.title, required this.child, required this.whenDone, required this.allowRegisterNewOrganization}): super(key: key);
+
+  @override
+  __UserValidViewState createState() => __UserValidViewState();
+}
+
+class __UserValidViewState extends State<_UserValidView> {
+  UserProfile? userProfile;
+
+  late Stream<QuerySnapshot<Map<String, dynamic>>> _myStream;
+
+  @override
+  void initState() {
+    super.initState();
+    _myStream = FirebaseFirestore.instance
+        .collectionGroup('Users')
+        .where('uid', isEqualTo: widget.user.uid)
+        .snapshots();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return StreamBuilder(
+      stream: _myStream,
+      builder: (context,
+          AsyncSnapshot<QuerySnapshot<Map<String, dynamic>>> snapshot) {
+        if (snapshot.hasError) {
+          return _errorView(context, snapshot.error.toString());
+        }
+
+        if (snapshot.connectionState == ConnectionState.waiting) {
+          return _loadingView(context);
+        }
+
+        if (snapshot.hasData && snapshot.data!.docs.isNotEmpty) {
+          userProfile = UserProfile(
+              uid: widget.user.uid,
+              name: widget.user.displayName!,
+              role: Role.values
+                  .elementAt(snapshot.data!.docs.first.data()['role']),
+              registerDate: snapshot.data!.docs.first
+                  .data()['registerDate']
+                  .toDate(),
+              organizations: snapshot.data!.docs
+                  .map((e) => e.reference.parent.parent!)
+                  .toList());
+          widget.whenDone(userProfile!);
+          return widget.child;
+        } else {
+          return _registerOrganizationView(context);
+        }
+      },
+    );
+  }
+
+  Widget _loadingView(BuildContext context) {
+    return Scaffold(
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              widget.title,
+              style: Theme.of(context).textTheme.headline6,
+            ),
+            CircularProgressIndicator.adaptive(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _errorView(BuildContext context,String errorString) {
+    return Scaffold(
+      appBar: AppBar(
+        title: Text(widget.title),
+      ),
+      body: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [Icon(Icons.error), Text(errorString)],
+        ),
+      ),
+    );
+  }
+
+  Widget _registerOrganizationView(BuildContext context) {
+    final _controller = TextEditingController();
+    return Scaffold(
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(30),
+        children: [
+          Text(
+            'Enter your referral code.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headline6,
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          Visibility(
+              visible: widget.allowRegisterNewOrganization,
+              child: TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                            builder: (context) =>
+                                _registerNewOrganizationView(context)));
+                  },
+                  child: Text('Register a new organization'))),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextField(
+            controller: _controller,
+            decoration: InputDecoration(
+                hintText: 'Referral code', border: InputBorder.none),
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          ElevatedButton(
+              onPressed: () async {
+                // Navigator.push(
+                //     context,
+                //     MaterialPageRoute(
+                //         builder: (context) => _loadingView()));
+                await registerOrganization(
+                    referralCode: _controller.text,
+                    uid: widget.user.uid,
+                    name: widget.user.displayName!)
+                    .then((value) {
+                  // Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  // Navigator.pop(context);
+                  flush(error.toString(), context);
+                });
+              },
+              child: Text('Next'))
+        ],
+      ),
+    );
+  }
+
+  Widget _registerNewOrganizationView(BuildContext context) {
+    final _controller = TextEditingController();
+    return Scaffold(
+      resizeToAvoidBottomInset: false,
+      appBar: AppBar(
+        title: Text('${widget.title}'),
+      ),
+      body: ListView(
+        padding: const EdgeInsets.all(30),
+        children: [
+          Text(
+            'Enter your organization name.',
+            style: Theme.of(context).textTheme.headline6,
+            textAlign: TextAlign.center,
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          TextFormField(
+            controller: _controller,
+            decoration: InputDecoration(
+                hintText: 'Organization name', border: InputBorder.none),
+          ),
+          Padding(padding: const EdgeInsets.only(bottom: 20)),
+          ElevatedButton(
+              onPressed: () async {
+                registerNewOrganization(
+                    organizationName: _controller.text,
+                    uid: widget.user.uid,
+                    name: widget.user.displayName!)
+                    .then((value) {
+                  Navigator.pop(context);
+                  Navigator.pop(context);
+                }).onError((error, stackTrace) {
+                  Navigator.pop(context);
+                  flush(error.toString(), context);
+                });
+                Navigator.push(context,
+                    MaterialPageRoute(builder: (context) => _loadingView(context)));
+              },
+              child: Text('Register'))
         ],
       ),
     );
